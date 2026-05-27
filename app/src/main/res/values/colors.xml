@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="black">#FF000000</color>
+    <color name="white">#FFFFFFFF</color>
+    <color name="trackpad_bg_top">#080D14</color>
+    <color name="trackpad_bg_bottom">#141C2B</color>
+    <color name="trackpad_surface">#171D28</color>
+    <color name="trackpad_accent">#FFB142</color>
+    <color name="trackpad_cyan">#30E8CC</color>
+</resources>
