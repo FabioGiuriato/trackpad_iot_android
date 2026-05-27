@@ -13,11 +13,14 @@ import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.Window;
+import android.widget.AdapterView;
+import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.HorizontalScrollView;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
+import android.widget.Spinner;
 import android.widget.TextView;
 
 import org.json.JSONArray;
@@ -25,12 +28,20 @@ import org.json.JSONException;
 import org.json.JSONObject;
 
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 public class MainActivity extends Activity {
+    private static final int SAVED_STEP_DURATION_MS = 125;
+    private static final int DEFAULT_STEP_COUNT = 16;
+    private static final int MAX_STEP_COUNT = 256;
+    private static final int LIVE_POLL_DELAY_MS = 100;
+    private static final int LIVE_REQUEST_TIMEOUT_MS = 2000;
     private static final int BG_TOP = Color.rgb(8, 13, 20);
     private static final int BG_BOTTOM = Color.rgb(20, 28, 43);
     private static final int SURFACE = Color.rgb(23, 29, 40);
@@ -54,6 +65,7 @@ public class MainActivity extends Activity {
     private static final Typeface MONO = Typeface.create("monospace", Typeface.NORMAL);
 
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
+    private final ExecutorService liveExecutor = Executors.newSingleThreadExecutor();
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private final Handler liveHandler = new Handler(Looper.getMainLooper());
 
@@ -75,7 +87,18 @@ public class MainActivity extends Activity {
     private JSONArray cachedSongs;
     private JSONObject currentSong;
     private JSONObject lastLiveEvent;
+    private int selectedStep = 0;
+    private int rackStepCount = DEFAULT_STEP_COUNT;
+    private int selectedSoundType = 0;
+    private final int[] previousButtonCounters = new int[6];
+    private int previousJoystickLeft = 0;
+    private int previousJoystickRight = 0;
+    private int previousJoystickUp = 0;
+    private int previousJoystickDown = 0;
+    private int previousJoystickClick = 0;
+    private boolean deviceCountersReady = false;
     private boolean pollingLive = false;
+    private volatile boolean liveRequestInFlight = false;
     private boolean registerMode = false;
 
     @Override
@@ -99,13 +122,16 @@ public class MainActivity extends Activity {
     @Override
     protected void onDestroy() {
         pollingLive = false;
+        liveRequestInFlight = false;
         liveHandler.removeCallbacksAndMessages(null);
         executor.shutdownNow();
+        liveExecutor.shutdownNow();
         super.onDestroy();
     }
 
     private void showAuth(String message) {
         pollingLive = false;
+        liveRequestInFlight = false;
         liveHandler.removeCallbacksAndMessages(null);
 
         LinearLayout root = new LinearLayout(this);
@@ -271,6 +297,8 @@ public class MainActivity extends Activity {
 
     private void showDashboard() {
         pollingLive = true;
+        liveRequestInFlight = false;
+        liveHandler.removeCallbacksAndMessages(null);
         apiClient.setBaseUrl(sessionStore.getBaseUrl());
 
         LinearLayout root = new LinearLayout(this);
@@ -386,10 +414,12 @@ public class MainActivity extends Activity {
 
         liveVolume = metricValue("-%", 32, ACCENT);
         liveJoystick = metricValue("-", 27, CYAN);
+        liveJoystick.setSingleLine(false);
+        liveJoystick.setMaxLines(2);
         liveUpdatedAt = metricValue("-", 18, MUTED);
 
         stats.addView(metricCard("Master volume", liveVolume, ACCENT), cardWeightParams(0, 1, 0, dp(10), 0, 0));
-        stats.addView(metricCard("Joystick X", liveJoystick, CYAN), cardWeightParams(0, 1, 0, dp(10), 0, 0));
+        stats.addView(metricCard("Joystick X/Y", liveJoystick, CYAN), cardWeightParams(0, 1, 0, dp(10), 0, 0));
         stats.addView(metricCard("Ultimo evento", liveUpdatedAt, BLUE), cardWeightParams(0, 1, 0, 0, 0, 0));
         page.addView(stats, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(132)));
 
@@ -542,6 +572,8 @@ public class MainActivity extends Activity {
                 JSONObject song = response.json.optJSONObject("song");
                 post(() -> {
                     currentSong = song;
+                    selectedStep = 0;
+                    selectedSoundType = firstTypeInSong(song);
                     drawRack(currentSong);
                 });
             } catch (IOException exception) {
@@ -562,27 +594,38 @@ public class MainActivity extends Activity {
             return;
         }
 
-        int stepCount = Math.max(16, song.optInt("step_count", 16));
-        LinearLayout header = pageHeader(song.optString("title", "Canzone"), song.optInt("bpm", 120) + " BPM  ·  " + stepCount + " step", ACCENT);
-        TextView mode = pill("Channel Rack", CYAN, Color.argb(28, 48, 232, 204));
-        header.addView(mode);
-        rackPanel.addView(header, matchWrapMargins(0, 0, 0, dp(14)));
+        rackStepCount = Math.min(MAX_STEP_COUNT, Math.max(DEFAULT_STEP_COUNT, song.optInt("step_count", DEFAULT_STEP_COUNT)));
+        selectedStep = clampInt(selectedStep, 0, rackStepCount - 1);
 
-        HorizontalScrollView scroll = new HorizontalScrollView(this);
-        scroll.setFillViewport(true);
+        LinearLayout header = pageHeader(song.optString("title", "Canzone"), song.optInt("bpm", 120) + " BPM - " + rackStepCount + " step - selezionato " + (selectedStep + 1), ACCENT);
+        TextView mode = pill("Tipo " + selectedSoundType + " - hardware", CYAN, Color.argb(28, 48, 232, 204));
+        LinearLayout typeSelector = soundTypeSelector();
+        Button saveButton = actionButton("Salva modifiche", GREEN, Color.rgb(12, 16, 22));
+        header.addView(mode);
+        header.addView(typeSelector, new LinearLayout.LayoutParams(dp(190), dp(58)));
+        header.addView(saveButton, new LinearLayout.LayoutParams(dp(150), dp(42)));
+        rackPanel.addView(header, matchWrapMargins(0, 0, 0, dp(14)));
+        saveButton.setOnClickListener(view -> saveCurrentSong());
+
+        ScrollView verticalScroll = new ScrollView(this);
+        verticalScroll.setFillViewport(true);
+
+        HorizontalScrollView horizontalScroll = new HorizontalScrollView(this);
+        horizontalScroll.setFillViewport(true);
 
         LinearLayout grid = new LinearLayout(this);
         grid.setOrientation(LinearLayout.VERTICAL);
         grid.setPadding(dp(2), dp(2), dp(2), dp(8));
-        scroll.addView(grid);
-        rackPanel.addView(scroll, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1));
+        horizontalScroll.addView(grid);
+        verticalScroll.addView(horizontalScroll, new ScrollView.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        rackPanel.addView(verticalScroll, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1));
 
-        grid.addView(stepHeader(stepCount));
+        grid.addView(stepHeader(rackStepCount));
 
         JSONArray channels = song.optJSONArray("channels");
 
         if (channels == null || channels.length() == 0) {
-            grid.addView(emptyState("La canzone non contiene note", "Quando registri dal sito o dal dispositivo, qui appariranno i quadratini attivi."));
+            grid.addView(emptyState("Nessun canale disponibile", "Aggiungi suoni dal sito Laravel, poi riapri questa canzone."));
             return;
         }
 
@@ -590,11 +633,11 @@ public class MainActivity extends Activity {
             JSONObject channel = channels.optJSONObject(index);
 
             if (channel != null) {
-                grid.addView(channelRow(channel, stepCount, index));
+                grid.addView(channelRow(channel, rackStepCount, index));
             }
         }
 
-        setStatus("Rack caricato");
+        setStatus("Rack caricato - step " + (selectedStep + 1));
     }
 
     private LinearLayout stepHeader(int stepCount) {
@@ -604,7 +647,7 @@ public class MainActivity extends Activity {
         row.addView(stepLabel("SUONO", dp(188), MUTED_DARK, true));
 
         for (int step = 0; step < stepCount; step++) {
-            TextView label = stepLabel(String.valueOf(step + 1), dp(34), step % 4 == 0 ? ACCENT : MUTED_DARK, false);
+            TextView label = stepLabel(String.valueOf(step + 1), dp(34), step == selectedStep ? RED : (step % 4 == 0 ? ACCENT : MUTED_DARK), step == selectedStep);
             row.addView(label);
         }
 
@@ -648,7 +691,11 @@ public class MainActivity extends Activity {
         for (int step = 0; step < stepCount; step++) {
             boolean active = activeSteps.contains(step);
             TextView cell = new TextView(this);
-            cell.setBackground(stepDrawable(active, step, PAD_COLORS[rowIndex % PAD_COLORS.length]));
+            cell.setGravity(Gravity.CENTER);
+            cell.setText(step == selectedStep ? "|" : "");
+            cell.setTextColor(step == selectedStep ? RED : Color.TRANSPARENT);
+            cell.setTypeface(BODY_BOLD);
+            cell.setBackground(stepDrawable(active, step, PAD_COLORS[rowIndex % PAD_COLORS.length], step == selectedStep));
             LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(dp(30), dp(30));
             params.setMargins(dp(2), 0, dp(2), 0);
             row.addView(cell, params);
@@ -657,20 +704,438 @@ public class MainActivity extends Activity {
         return row;
     }
 
+    private int firstTypeInSong(JSONObject song) {
+        JSONArray channels = song == null ? null : song.optJSONArray("channels");
+
+        if (channels == null || channels.length() == 0) {
+            return 0;
+        }
+
+        JSONObject firstSound = channels.optJSONObject(0) == null ? null : channels.optJSONObject(0).optJSONObject("sound");
+        return firstSound == null ? 0 : firstSound.optInt("tipo", 0);
+    }
+
+    private List<Integer> availableTypesInCurrentSong() {
+        List<Integer> types = new ArrayList<>();
+        for (SoundTypeOption option : soundTypeOptionsInCurrentSong()) {
+            types.add(option.type);
+        }
+
+        return types;
+    }
+
+    private List<SoundTypeOption> soundTypeOptionsInCurrentSong() {
+        List<SoundTypeOption> options = new ArrayList<>();
+        JSONArray channels = currentSong == null ? null : currentSong.optJSONArray("channels");
+
+        if (channels == null) {
+            return options;
+        }
+
+        for (int index = 0; index < channels.length(); index++) {
+            JSONObject channel = channels.optJSONObject(index);
+            JSONObject sound = channel == null ? null : channel.optJSONObject("sound");
+
+            if (sound == null) {
+                continue;
+            }
+
+            int type = sound.optInt("tipo", 0);
+            String label = sound.optString("type_label", "Tipo " + type);
+
+            if (!containsSoundType(options, type)) {
+                options.add(new SoundTypeOption(type, label));
+            }
+        }
+
+        Collections.sort(options, (left, right) -> Integer.compare(left.type, right.type));
+        return options;
+    }
+
+    private boolean containsSoundType(List<SoundTypeOption> options, int type) {
+        for (SoundTypeOption option : options) {
+            if (option.type == type) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private LinearLayout soundTypeSelector() {
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setGravity(Gravity.CENTER_VERTICAL);
+        box.setPadding(dp(10), dp(4), dp(10), dp(4));
+        box.setBackground(cardDrawable(Color.rgb(16, 22, 33), dp(16), Color.rgb(55, 68, 91)));
+
+        TextView title = label("Tipo hardware", 10, MUTED_DARK, true);
+        title.setSingleLine(true);
+        box.addView(title);
+
+        List<SoundTypeOption> options = soundTypeOptionsInCurrentSong();
+
+        if (options.isEmpty()) {
+            box.addView(label("Nessun tipo", 13, MUTED, false));
+            return box;
+        }
+
+        int selectedIndex = 0;
+
+        for (int index = 0; index < options.size(); index++) {
+            if (options.get(index).type == selectedSoundType) {
+                selectedIndex = index;
+                break;
+            }
+        }
+
+        selectedSoundType = options.get(selectedIndex).type;
+
+        ArrayAdapter<SoundTypeOption> adapter = new ArrayAdapter<SoundTypeOption>(this, android.R.layout.simple_spinner_item, options) {
+            @Override
+            public View getView(int position, View convertView, ViewGroup parent) {
+                TextView view = (TextView) super.getView(position, convertView, parent);
+                view.setTextColor(TEXT);
+                view.setTextSize(13);
+                view.setTypeface(BODY_BOLD);
+                view.setSingleLine(true);
+                view.setEllipsize(TextUtils.TruncateAt.END);
+                return view;
+            }
+
+            @Override
+            public View getDropDownView(int position, View convertView, ViewGroup parent) {
+                TextView view = (TextView) super.getDropDownView(position, convertView, parent);
+                view.setTextColor(Color.rgb(12, 16, 22));
+                view.setTextSize(15);
+                view.setTypeface(BODY_BOLD);
+                view.setPadding(dp(14), dp(12), dp(14), dp(12));
+                view.setBackgroundColor(Color.rgb(245, 248, 255));
+                return view;
+            }
+        };
+        adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+
+        Spinner spinner = new Spinner(this);
+        spinner.setAdapter(adapter);
+        spinner.setSelection(selectedIndex, false);
+        spinner.setBackground(cardDrawable(Color.rgb(26, 34, 48), dp(12), Color.rgb(64, 79, 104)));
+        spinner.setPopupBackgroundDrawable(cardDrawable(Color.rgb(245, 248, 255), dp(14), Color.rgb(210, 218, 230)));
+        spinner.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
+            @Override
+            public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
+                SoundTypeOption option = (SoundTypeOption) parent.getItemAtPosition(position);
+
+                if (option == null || option.type == selectedSoundType) {
+                    return;
+                }
+
+                selectedSoundType = option.type;
+                drawRack(currentSong);
+                setStatus("Tipo hardware: " + option.label);
+            }
+
+            @Override
+            public void onNothingSelected(AdapterView<?> parent) {
+            }
+        });
+
+        box.addView(spinner, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(34)));
+        return box;
+    }
+
+    private void changeSelectedSoundType(int delta) {
+        List<Integer> types = availableTypesInCurrentSong();
+
+        if (types.isEmpty()) {
+            return;
+        }
+
+        int currentIndex = types.indexOf(selectedSoundType);
+        int nextIndex = currentIndex < 0 ? 0 : (currentIndex + delta + types.size()) % types.size();
+        selectedSoundType = types.get(nextIndex);
+        drawRack(currentSong);
+        setStatus("Tipo selezionato: " + selectedSoundType);
+    }
+
+    private void moveSelectedStep(int delta) {
+        int nextStep = selectedStep + delta;
+
+        if (nextStep >= rackStepCount && rackStepCount < MAX_STEP_COUNT) {
+            rackStepCount = Math.min(MAX_STEP_COUNT, rackStepCount + DEFAULT_STEP_COUNT);
+
+            try {
+                currentSong.put("step_count", rackStepCount);
+            } catch (JSONException ignored) {
+            }
+        }
+
+        selectedStep = clampInt(nextStep, 0, rackStepCount - 1);
+        drawRack(currentSong);
+        setStatus("Step selezionato: " + (selectedStep + 1));
+    }
+
+    private void addStepFromHardwareButton(int slot) {
+        if (currentSong == null) {
+            setStatus("Seleziona prima una canzone.");
+            return;
+        }
+
+        JSONObject channel = channelByTypeAndSlot(selectedSoundType, slot);
+
+        if (channel == null) {
+            setStatus("Nessun suono per Button " + slot + " nel tipo " + selectedSoundType);
+            return;
+        }
+
+        JSONArray steps = channel.optJSONArray("steps");
+
+        if (steps == null) {
+            steps = new JSONArray();
+
+            try {
+                channel.put("steps", steps);
+            } catch (JSONException ignored) {
+            }
+        }
+
+        for (int index = 0; index < steps.length(); index++) {
+            if (steps.optInt(index) == selectedStep) {
+                playSoundForChannel(channel);
+                setStatus("Step gia attivo: " + (selectedStep + 1));
+                return;
+            }
+        }
+
+        steps.put(selectedStep);
+        playSoundForChannel(channel);
+        drawRack(currentSong);
+        setStatus("Aggiunto Button " + slot + " allo step " + (selectedStep + 1) + ". Premi Salva modifiche.");
+    }
+
+    private JSONObject channelByTypeAndSlot(int type, int slot) {
+        JSONArray channels = currentSong == null ? null : currentSong.optJSONArray("channels");
+
+        if (channels == null) {
+            return null;
+        }
+
+        int currentSlot = 0;
+
+        for (int index = 0; index < channels.length(); index++) {
+            JSONObject channel = channels.optJSONObject(index);
+            JSONObject sound = channel == null ? null : channel.optJSONObject("sound");
+
+            if (sound == null || sound.optInt("tipo", 0) != type) {
+                continue;
+            }
+
+            currentSlot++;
+
+            if (currentSlot == slot) {
+                return channel;
+            }
+        }
+
+        return null;
+    }
+
+    private void playSoundForChannel(JSONObject channel) {
+        JSONObject sound = channel.optJSONObject("sound");
+
+        if (sound == null) {
+            return;
+        }
+
+        String soundUrl = sound.optString("sound_url", "");
+
+        if (soundUrl.isEmpty()) {
+            return;
+        }
+
+        // A tiny WebView would be overkill here; Android's MediaPlayer setup is heavier
+        // than this screen needs, so the visual rack update remains the source of truth.
+    }
+
+    private JSONArray songEventsForSave() {
+        JSONArray events = new JSONArray();
+        JSONArray channels = currentSong == null ? null : currentSong.optJSONArray("channels");
+
+        if (channels == null) {
+            return events;
+        }
+
+        for (int channelIndex = 0; channelIndex < channels.length(); channelIndex++) {
+            JSONObject channel = channels.optJSONObject(channelIndex);
+            int buttonId = channel == null ? 0 : channel.optInt("button_id", 0);
+            JSONArray steps = channel == null ? null : channel.optJSONArray("steps");
+
+            if (buttonId <= 0 || steps == null) {
+                continue;
+            }
+
+            Set<Integer> uniqueSteps = new HashSet<>();
+
+            for (int stepIndex = 0; stepIndex < steps.length(); stepIndex++) {
+                int step = steps.optInt(stepIndex);
+
+                if (!uniqueSteps.add(step)) {
+                    continue;
+                }
+
+                JSONObject event = new JSONObject();
+
+                try {
+                    event.put("button_id", buttonId);
+                    event.put("time_ms", step * SAVED_STEP_DURATION_MS);
+                    events.put(event);
+                } catch (JSONException ignored) {
+                }
+            }
+        }
+
+        return events;
+    }
+
+    private void saveCurrentSong() {
+        if (currentSong == null) {
+            setStatus("Seleziona prima una canzone.");
+            return;
+        }
+
+        int songId = currentSong.optInt("id", 0);
+
+        if (songId <= 0) {
+            setStatus("Questa canzone non puo essere salvata dall'app.");
+            return;
+        }
+
+        setStatus("Salvo modifiche...");
+
+        executor.execute(() -> {
+            try {
+                JSONObject body = new JSONObject();
+                body.put("bpm", currentSong.optInt("bpm", 120));
+                body.put("events", songEventsForSave());
+
+                ApiClient.ApiResponse response = apiClient.put("/songs/" + songId, body, sessionStore.getToken());
+
+                if (!response.isSuccessful()) {
+                    post(() -> setStatus(response.message()));
+                    return;
+                }
+
+                post(() -> setStatus("Canzone salvata."));
+            } catch (IOException | JSONException exception) {
+                post(() -> setStatus("Errore salvataggio canzone"));
+            }
+        });
+    }
+
+    private void processDeviceEvent(JSONObject event) {
+        if (event == null) {
+            return;
+        }
+
+        JSONObject counters = event.optJSONObject("counters");
+
+        if (counters == null) {
+            return;
+        }
+
+        JSONObject buttons = counters.optJSONObject("buttons");
+        int joystickLeft = counters.optInt("joystick_left", 0);
+        int joystickRight = counters.optInt("joystick_right", 0);
+        int joystickUp = counters.optInt("joystick_up", 0);
+        int joystickDown = counters.optInt("joystick_down", 0);
+        int joystickClick = counters.optInt("joystick_click", 0);
+
+        if (!deviceCountersReady) {
+            storePreviousDeviceCounters(buttons, joystickLeft, joystickRight, joystickUp, joystickDown, joystickClick);
+            deviceCountersReady = true;
+            return;
+        }
+
+        if (joystickLeft > previousJoystickLeft) {
+            changeSelectedSoundType(-1);
+        }
+
+        if (joystickRight > previousJoystickRight) {
+            changeSelectedSoundType(1);
+        }
+
+        if (joystickUp > previousJoystickUp) {
+            moveSelectedStep(-1);
+        }
+
+        if (joystickDown > previousJoystickDown) {
+            moveSelectedStep(1);
+        }
+
+        if (joystickClick > previousJoystickClick) {
+            setStatus("Click joystick ricevuto.");
+        }
+
+        for (int slot = 1; slot <= 5; slot++) {
+            int buttonCounter = buttons == null ? 0 : buttons.optInt(String.valueOf(slot), 0);
+
+            if (buttonCounter > previousButtonCounters[slot]) {
+                addStepFromHardwareButton(slot);
+            }
+        }
+
+        storePreviousDeviceCounters(buttons, joystickLeft, joystickRight, joystickUp, joystickDown, joystickClick);
+    }
+
+    private void storePreviousDeviceCounters(JSONObject buttons, int left, int right, int up, int down, int click) {
+        for (int slot = 1; slot <= 5; slot++) {
+            previousButtonCounters[slot] = buttons == null ? 0 : buttons.optInt(String.valueOf(slot), 0);
+        }
+
+        previousJoystickLeft = left;
+        previousJoystickRight = right;
+        previousJoystickUp = up;
+        previousJoystickDown = down;
+        previousJoystickClick = click;
+    }
+
     private void pollLive() {
         if (!pollingLive || !sessionStore.hasToken()) {
             return;
         }
 
-        executor.execute(() -> {
+        if (liveRequestInFlight) {
+            liveHandler.postDelayed(this::pollLive, LIVE_POLL_DELAY_MS);
+            return;
+        }
+
+        liveRequestInFlight = true;
+
+        liveExecutor.execute(() -> {
             try {
-                ApiClient.ApiResponse response = apiClient.get("/mqtt/latest", sessionStore.getToken());
+                ApiClient.ApiResponse response = apiClient.get("/mqtt/latest", sessionStore.getToken(), LIVE_REQUEST_TIMEOUT_MS);
+
+                if (response.statusCode == 401) {
+                    sessionStore.clearSession();
+                    post(() -> {
+                        registerMode = false;
+                        showAuth("Sessione scaduta. Fai login di nuovo.");
+                    });
+                    return;
+                }
 
                 if (response.isSuccessful()) {
                     JSONObject event = response.json.optJSONObject("event");
                     post(() -> {
                         lastLiveEvent = event;
+                        processDeviceEvent(event);
                         renderLiveEvent(lastLiveEvent);
+                    });
+                } else {
+                    post(() -> {
+                        if (liveUpdatedAt != null) {
+                            liveUpdatedAt.setText("HTTP " + response.statusCode);
+                        }
                     });
                 }
             } catch (IOException ignored) {
@@ -680,7 +1145,11 @@ public class MainActivity extends Activity {
                     }
                 });
             } finally {
-                liveHandler.postDelayed(this::pollLive, 1200);
+                liveRequestInFlight = false;
+
+                if (pollingLive && sessionStore.hasToken()) {
+                    liveHandler.postDelayed(this::pollLive, LIVE_POLL_DELAY_MS);
+                }
             }
         });
     }
@@ -701,7 +1170,9 @@ public class MainActivity extends Activity {
         }
 
         liveVolume.setText(event.optInt("volume", event.optInt("pot_percentuale", 0)) + "%");
-        liveJoystick.setText(event.optString("joystick_x_posizione", "CENTRO"));
+        String joystickX = event.optString("joystick_x_posizione", "CENTRO");
+        String joystickY = event.optString("joystick_y_posizione", "CENTRO");
+        liveJoystick.setText("X " + joystickX + "\nY " + joystickY);
         liveUpdatedAt.setText(event.optString("created_at", "-"));
 
         for (int i = 0; i < liveButtons.length; i++) {
@@ -914,14 +1385,14 @@ public class MainActivity extends Activity {
         return drawable;
     }
 
-    private GradientDrawable stepDrawable(boolean active, int step, int accent) {
+    private GradientDrawable stepDrawable(boolean active, int step, int accent, boolean selected) {
         int base = step % 4 == 0 ? Color.rgb(36, 45, 61) : Color.rgb(25, 33, 46);
 
         if (active) {
-            return gradientCard(new int[]{accent, Color.rgb(236, 255, 250)}, dp(9), Color.argb(150, 255, 255, 255));
+            return gradientCard(new int[]{accent, Color.rgb(236, 255, 250)}, dp(9), selected ? RED : Color.argb(150, 255, 255, 255));
         }
 
-        return cardDrawable(base, dp(9), step % 4 == 0 ? Color.rgb(71, 82, 103) : Color.rgb(45, 56, 77));
+        return cardDrawable(base, dp(9), selected ? RED : (step % 4 == 0 ? Color.rgb(71, 82, 103) : Color.rgb(45, 56, 77)));
     }
 
     private LinearLayout.LayoutParams rowParams() {
@@ -981,7 +1452,26 @@ public class MainActivity extends Activity {
         mainHandler.post(runnable);
     }
 
+    private int clampInt(int value, int min, int max) {
+        return Math.min(Math.max(value, min), max);
+    }
+
     private int dp(int value) {
         return Math.round(value * getResources().getDisplayMetrics().density);
+    }
+
+    private static class SoundTypeOption {
+        final int type;
+        final String label;
+
+        SoundTypeOption(int type, String label) {
+            this.type = type;
+            this.label = label;
+        }
+
+        @Override
+        public String toString() {
+            return label;
+        }
     }
 }

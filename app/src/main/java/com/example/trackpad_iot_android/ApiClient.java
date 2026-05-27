@@ -39,24 +39,34 @@ class ApiClient {
     }
 
     ApiResponse get(String path, String token) throws IOException {
-        return request("GET", path, null, token);
+        return get(path, token, 8000);
+    }
+
+    ApiResponse get(String path, String token, int timeoutMs) throws IOException {
+        return request("GET", path, null, token, timeoutMs);
     }
 
     ApiResponse post(String path, JSONObject body, String token) throws IOException {
-        return request("POST", path, body, token);
+        return request("POST", path, body, token, 8000);
     }
 
-    private ApiResponse request(String method, String path, JSONObject body, String token) throws IOException {
+    ApiResponse put(String path, JSONObject body, String token) throws IOException {
+        return request("PUT", path, body, token, 8000);
+    }
+
+    private ApiResponse request(String method, String path, JSONObject body, String token, int timeoutMs) throws IOException {
         HttpURLConnection connection = null;
 
         try {
             URL url = new URL(baseUrl + path);
             connection = (HttpURLConnection) url.openConnection();
             connection.setRequestMethod(method);
-            connection.setConnectTimeout(8000);
-            connection.setReadTimeout(8000);
+            connection.setConnectTimeout(timeoutMs);
+            connection.setReadTimeout(timeoutMs);
+            connection.setUseCaches(false);
             connection.setRequestProperty("Accept", "application/json");
             connection.setRequestProperty("Content-Type", "application/json; charset=utf-8");
+            connection.setRequestProperty("Cache-Control", "no-cache");
 
             if (token != null && !token.isEmpty()) {
                 connection.setRequestProperty("Authorization", "Bearer " + token);
