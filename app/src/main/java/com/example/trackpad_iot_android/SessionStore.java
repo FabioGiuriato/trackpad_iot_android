@@ -24,7 +24,13 @@ class SessionStore {
     }
 
     String getBaseUrl() {
-        return preferences.getString(KEY_BASE_URL, ApiClient.DEFAULT_BASE_URL);
+        String baseUrl = preferences.getString(KEY_BASE_URL, ApiClient.DEFAULT_BASE_URL);
+
+        if (ApiClient.EMULATOR_BASE_URL.equals(baseUrl)) {
+            return ApiClient.DEFAULT_BASE_URL;
+        }
+
+        return baseUrl;
     }
 
     void saveBaseUrl(String baseUrl) {

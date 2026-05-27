@@ -14,7 +14,8 @@ import java.net.URL;
 import java.nio.charset.StandardCharsets;
 
 class ApiClient {
-    static final String DEFAULT_BASE_URL = "http://10.0.2.2:8000/api/v1";
+    static final String DEFAULT_BASE_URL = "http://10.230.52.56:8000/api/v1";
+    static final String EMULATOR_BASE_URL = "http://10.0.2.2:8000/api/v1";
 
     private String baseUrl;
 

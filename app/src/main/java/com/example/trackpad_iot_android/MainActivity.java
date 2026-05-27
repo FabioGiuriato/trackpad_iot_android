@@ -140,11 +140,17 @@ public class MainActivity extends Activity {
         root.setPadding(dp(28), dp(22), dp(28), dp(22));
         root.setBackground(appBackground());
 
+        ScrollView authScroll = new ScrollView(this);
+        authScroll.setFillViewport(false);
+        authScroll.setClipToPadding(false);
+        authScroll.setPadding(0, 0, 0, dp(24));
+
         LinearLayout panel = new LinearLayout(this);
         panel.setOrientation(LinearLayout.VERTICAL);
         panel.setPadding(dp(28), dp(24), dp(28), dp(24));
         panel.setBackground(gradientCard(new int[]{Color.rgb(20, 27, 40), Color.rgb(15, 20, 31)}, dp(26), Color.rgb(63, 78, 101)));
-        root.addView(panel, new LinearLayout.LayoutParams(dp(460), ViewGroup.LayoutParams.MATCH_PARENT));
+        authScroll.addView(panel, new ScrollView.LayoutParams(dp(460), ViewGroup.LayoutParams.WRAP_CONTENT));
+        root.addView(authScroll, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.MATCH_PARENT));
 
         TextView eyebrow = pill("ESP32 LIVE STUDIO", CYAN, Color.argb(30, 48, 232, 204));
         panel.addView(eyebrow, wrapMargins(0, 0, 0, dp(12)));
@@ -188,8 +194,6 @@ public class MainActivity extends Activity {
 
         Button submitButton = actionButton(registerMode ? "Crea account" : "Accedi alla console", ACCENT, Color.rgb(18, 18, 18));
         panel.addView(submitButton, matchHeightMargins(dp(52), 0, dp(18), 0, 0));
-
-        addFlexibleSpace(panel);
 
         loginModeButton.setOnClickListener(view -> {
             registerMode = false;
@@ -406,6 +410,10 @@ public class MainActivity extends Activity {
         setActiveTab(liveTab);
         pageHost.removeAllViews();
 
+        ScrollView liveScroll = new ScrollView(this);
+        liveScroll.setFillViewport(false);
+        liveScroll.setClipToPadding(false);
+
         LinearLayout page = pagePanel();
         page.addView(pageHeader("Live MQTT", "Ultimo JSON ricevuto dal dispositivo ESP32.", CYAN), matchWrapMargins(0, 0, 0, dp(16)));
 
@@ -444,7 +452,8 @@ public class MainActivity extends Activity {
         note.setPadding(0, dp(18), 0, 0);
         page.addView(note);
 
-        pageHost.addView(page, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        liveScroll.addView(page, new ScrollView.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        pageHost.addView(liveScroll, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         renderLiveEvent(lastLiveEvent);
     }
 
