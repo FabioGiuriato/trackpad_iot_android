@@ -308,10 +308,10 @@ public class MainActivity extends Activity {
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setBackground(appBackground());
-        root.setPadding(dp(16), dp(12), dp(16), dp(14));
+        root.setPadding(dp(10), dp(6), dp(10), dp(8));
 
-        root.addView(topBar(), matchHeightMargins(dp(62), 0, 0, 0, dp(10)));
-        root.addView(tabBar(), matchHeightMargins(dp(54), 0, 0, 0, dp(12)));
+        root.addView(topBar(), matchHeightMargins(dp(56), 0, 0, 0, dp(6)));
+        root.addView(tabBar(), matchHeightMargins(dp(48), 0, 0, 0, dp(6)));
 
         pageHost = new LinearLayout(this);
         pageHost.setOrientation(LinearLayout.VERTICAL);
@@ -332,8 +332,8 @@ public class MainActivity extends Activity {
 
         LinearLayout titleBox = new LinearLayout(this);
         titleBox.setOrientation(LinearLayout.VERTICAL);
-        titleBox.addView(label("Trackpad MQTT", 24, TEXT, true));
-        titleBox.addView(label("Android monitor console", 11, MUTED_DARK, false));
+        titleBox.addView(label("Trackpad MQTT", 21, TEXT, true));
+        titleBox.addView(label("Android monitor console", 10, MUTED_DARK, false));
 
         TextView user = pill("utente  " + sessionStore.getUsername(), CYAN, Color.argb(24, 48, 232, 204));
         statusText = pill("Pronto", GREEN, Color.argb(24, 111, 255, 139));
@@ -342,7 +342,7 @@ public class MainActivity extends Activity {
         topBar.addView(titleBox, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
         topBar.addView(user, wrapMargins(0, 0, dp(10), 0));
         topBar.addView(statusText, wrapMargins(0, 0, dp(10), 0));
-        topBar.addView(logoutButton, new LinearLayout.LayoutParams(dp(108), dp(42)));
+        topBar.addView(logoutButton, new LinearLayout.LayoutParams(dp(96), dp(40)));
 
         logoutButton.setOnClickListener(view -> logout());
         return topBar;
@@ -398,6 +398,7 @@ public class MainActivity extends Activity {
         pageHost.removeAllViews();
 
         LinearLayout page = pagePanel();
+        page.setPadding(dp(8), dp(6), dp(8), dp(6));
         rackPanel = new LinearLayout(this);
         rackPanel.setOrientation(LinearLayout.VERTICAL);
         page.addView(rackPanel, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
@@ -606,18 +607,21 @@ public class MainActivity extends Activity {
         rackStepCount = Math.min(MAX_STEP_COUNT, Math.max(DEFAULT_STEP_COUNT, song.optInt("step_count", DEFAULT_STEP_COUNT)));
         selectedStep = clampInt(selectedStep, 0, rackStepCount - 1);
 
-        LinearLayout header = pageHeader(song.optString("title", "Canzone"), song.optInt("bpm", 120) + " BPM - " + rackStepCount + " step - selezionato " + (selectedStep + 1), ACCENT);
-        TextView mode = pill("Tipo " + selectedSoundType + " - hardware", CYAN, Color.argb(28, 48, 232, 204));
+        LinearLayout header = compactRackHeader(song.optString("title", "Canzone"), song.optInt("bpm", 120) + " BPM - " + rackStepCount + " step - step " + (selectedStep + 1));
         LinearLayout typeSelector = soundTypeSelector();
         Button saveButton = actionButton("Salva modifiche", GREEN, Color.rgb(12, 16, 22));
-        header.addView(mode);
-        header.addView(typeSelector, new LinearLayout.LayoutParams(dp(190), dp(58)));
-        header.addView(saveButton, new LinearLayout.LayoutParams(dp(150), dp(42)));
-        rackPanel.addView(header, matchWrapMargins(0, 0, 0, dp(14)));
+        LinearLayout.LayoutParams selectorParams = new LinearLayout.LayoutParams(dp(158), dp(42));
+        selectorParams.setMargins(0, 0, dp(6), 0);
+        header.addView(typeSelector, selectorParams);
+        header.addView(saveButton, new LinearLayout.LayoutParams(dp(116), dp(36)));
         saveButton.setOnClickListener(view -> saveCurrentSong());
 
         ScrollView verticalScroll = new ScrollView(this);
         verticalScroll.setFillViewport(true);
+
+        LinearLayout scrollContent = new LinearLayout(this);
+        scrollContent.setOrientation(LinearLayout.VERTICAL);
+        scrollContent.addView(header, matchWrapMargins(0, 0, 0, dp(6)));
 
         HorizontalScrollView horizontalScroll = new HorizontalScrollView(this);
         horizontalScroll.setFillViewport(true);
@@ -626,7 +630,8 @@ public class MainActivity extends Activity {
         grid.setOrientation(LinearLayout.VERTICAL);
         grid.setPadding(dp(2), dp(2), dp(2), dp(8));
         horizontalScroll.addView(grid);
-        verticalScroll.addView(horizontalScroll, new ScrollView.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        scrollContent.addView(horizontalScroll, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        verticalScroll.addView(scrollContent, new ScrollView.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         rackPanel.addView(verticalScroll, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1));
 
         grid.addView(stepHeader(rackStepCount));
@@ -652,11 +657,11 @@ public class MainActivity extends Activity {
     private LinearLayout stepHeader(int stepCount) {
         LinearLayout row = new LinearLayout(this);
         row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setPadding(0, 0, 0, dp(6));
-        row.addView(stepLabel("SUONO", dp(188), MUTED_DARK, true));
+        row.setPadding(0, 0, 0, dp(2));
+        row.addView(stepLabel("SUONO", dp(138), MUTED_DARK, true));
 
         for (int step = 0; step < stepCount; step++) {
-            TextView label = stepLabel(String.valueOf(step + 1), dp(34), step == selectedStep ? RED : (step % 4 == 0 ? ACCENT : MUTED_DARK), step == selectedStep);
+            TextView label = stepLabel(String.valueOf(step + 1), dp(26), step == selectedStep ? RED : (step % 4 == 0 ? ACCENT : MUTED_DARK), step == selectedStep);
             row.addView(label);
         }
 
@@ -676,7 +681,7 @@ public class MainActivity extends Activity {
 
         LinearLayout row = new LinearLayout(this);
         row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setPadding(0, dp(5), 0, dp(5));
+        row.setPadding(0, dp(1), 0, dp(1));
 
         String name = sound == null ? "Suono" : sound.optString("name", "Suono");
         String type = sound == null ? "" : sound.optString("type_label", "");
@@ -684,18 +689,18 @@ public class MainActivity extends Activity {
         LinearLayout nameCell = new LinearLayout(this);
         nameCell.setOrientation(LinearLayout.VERTICAL);
         nameCell.setGravity(Gravity.CENTER_VERTICAL);
-        nameCell.setPadding(dp(12), dp(7), dp(10), dp(7));
-        nameCell.setBackground(cardDrawable(Color.rgb(22, 29, 42), dp(14), Color.rgb(49, 61, 82)));
+        nameCell.setPadding(dp(8), dp(2), dp(8), dp(2));
+        nameCell.setBackground(cardDrawable(Color.rgb(22, 29, 42), dp(10), Color.rgb(49, 61, 82)));
 
-        TextView title = label(name, 14, TEXT, true);
+        TextView title = label(name, 11, TEXT, true);
         title.setSingleLine(true);
         title.setEllipsize(TextUtils.TruncateAt.END);
-        TextView kind = label(type, 11, PAD_COLORS[rowIndex % PAD_COLORS.length], false);
+        TextView kind = label(type, 9, PAD_COLORS[rowIndex % PAD_COLORS.length], false);
         kind.setSingleLine(true);
         kind.setEllipsize(TextUtils.TruncateAt.END);
         nameCell.addView(title);
         nameCell.addView(kind);
-        row.addView(nameCell, new LinearLayout.LayoutParams(dp(188), dp(46)));
+        row.addView(nameCell, new LinearLayout.LayoutParams(dp(138), dp(31)));
 
         for (int step = 0; step < stepCount; step++) {
             boolean active = activeSteps.contains(step);
@@ -705,8 +710,8 @@ public class MainActivity extends Activity {
             cell.setTextColor(step == selectedStep ? RED : Color.TRANSPARENT);
             cell.setTypeface(BODY_BOLD);
             cell.setBackground(stepDrawable(active, step, PAD_COLORS[rowIndex % PAD_COLORS.length], step == selectedStep));
-            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(dp(30), dp(30));
-            params.setMargins(dp(2), 0, dp(2), 0);
+            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(dp(22), dp(22));
+            params.setMargins(dp(1), 0, dp(1), 0);
             row.addView(cell, params);
         }
 
@@ -775,10 +780,10 @@ public class MainActivity extends Activity {
         LinearLayout box = new LinearLayout(this);
         box.setOrientation(LinearLayout.VERTICAL);
         box.setGravity(Gravity.CENTER_VERTICAL);
-        box.setPadding(dp(10), dp(4), dp(10), dp(4));
-        box.setBackground(cardDrawable(Color.rgb(16, 22, 33), dp(16), Color.rgb(55, 68, 91)));
+        box.setPadding(dp(7), dp(1), dp(7), dp(1));
+        box.setBackground(cardDrawable(Color.rgb(16, 22, 33), dp(12), Color.rgb(55, 68, 91)));
 
-        TextView title = label("Tipo hardware", 10, MUTED_DARK, true);
+        TextView title = label("Tipo hardware", 8, MUTED_DARK, true);
         title.setSingleLine(true);
         box.addView(title);
 
@@ -805,7 +810,7 @@ public class MainActivity extends Activity {
             public View getView(int position, View convertView, ViewGroup parent) {
                 TextView view = (TextView) super.getView(position, convertView, parent);
                 view.setTextColor(TEXT);
-                view.setTextSize(13);
+                view.setTextSize(11);
                 view.setTypeface(BODY_BOLD);
                 view.setSingleLine(true);
                 view.setEllipsize(TextUtils.TruncateAt.END);
@@ -828,7 +833,7 @@ public class MainActivity extends Activity {
         Spinner spinner = new Spinner(this);
         spinner.setAdapter(adapter);
         spinner.setSelection(selectedIndex, false);
-        spinner.setBackground(cardDrawable(Color.rgb(26, 34, 48), dp(12), Color.rgb(64, 79, 104)));
+        spinner.setBackground(cardDrawable(Color.rgb(26, 34, 48), dp(9), Color.rgb(64, 79, 104)));
         spinner.setPopupBackgroundDrawable(cardDrawable(Color.rgb(245, 248, 255), dp(14), Color.rgb(210, 218, 230)));
         spinner.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
             @Override
@@ -849,7 +854,7 @@ public class MainActivity extends Activity {
             }
         });
 
-        box.addView(spinner, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(34)));
+        box.addView(spinner, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(28)));
         return box;
     }
 
@@ -1248,6 +1253,23 @@ public class MainActivity extends Activity {
         return header;
     }
 
+    private LinearLayout compactRackHeader(String title, String subtitle) {
+        LinearLayout header = new LinearLayout(this);
+        header.setOrientation(LinearLayout.HORIZONTAL);
+        header.setGravity(Gravity.CENTER_VERTICAL);
+
+        LinearLayout texts = new LinearLayout(this);
+        texts.setOrientation(LinearLayout.VERTICAL);
+        texts.addView(label(title, 18, TEXT, true));
+        texts.addView(label(subtitle, 10, MUTED, false));
+
+        TextView mark = new TextView(this);
+        mark.setBackground(cardDrawable(ACCENT, dp(6), Color.TRANSPARENT));
+        header.addView(mark, new LinearLayout.LayoutParams(dp(5), dp(34)));
+        header.addView(texts, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+        return header;
+    }
+
     private LinearLayout heroStat(String number, String text, int accent) {
         LinearLayout card = new LinearLayout(this);
         card.setOrientation(LinearLayout.VERTICAL);
@@ -1348,10 +1370,10 @@ public class MainActivity extends Activity {
     }
 
     private TextView stepLabel(String text, int width, int color, boolean bold) {
-        TextView view = label(text, 11, color, bold);
+        TextView view = label(text, 9, color, bold);
         view.setGravity(Gravity.CENTER);
         view.setMinWidth(width);
-        view.setPadding(dp(4), dp(4), dp(4), dp(4));
+        view.setPadding(dp(1), dp(1), dp(1), dp(1));
         return view;
     }
 
