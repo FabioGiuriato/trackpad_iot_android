@@ -96,6 +96,7 @@ public class MainActivity extends Activity {
     private int previousJoystickUp = 0;
     private int previousJoystickDown = 0;
     private int previousJoystickClick = 0;
+    private String previousDeviceJoystickX = "CENTRO";
     private boolean deviceCountersReady = false;
     private boolean pollingLive = false;
     private volatile boolean liveRequestInFlight = false;
@@ -1054,7 +1055,7 @@ public class MainActivity extends Activity {
         JSONObject counters = event.optJSONObject("counters");
 
         if (counters == null) {
-            return;
+            counters = new JSONObject();
         }
 
         JSONObject buttons = counters.optJSONObject("buttons");
@@ -1066,17 +1067,24 @@ public class MainActivity extends Activity {
 
         if (!deviceCountersReady) {
             storePreviousDeviceCounters(buttons, joystickLeft, joystickRight, joystickUp, joystickDown, joystickClick);
+            previousDeviceJoystickX = normalizeJoystickDirection(event.optString("joystick_x_posizione", "CENTRO"));
             deviceCountersReady = true;
             return;
         }
 
+        boolean soundTypeChangedByCounters = false;
+
         if (joystickLeft > previousJoystickLeft) {
             changeSelectedSoundType(-1);
+            soundTypeChangedByCounters = true;
         }
 
         if (joystickRight > previousJoystickRight) {
             changeSelectedSoundType(1);
+            soundTypeChangedByCounters = true;
         }
+
+        processJoystickXDirection(event, soundTypeChangedByCounters);
 
         if (joystickUp > previousJoystickUp) {
             moveSelectedStep(-1);
@@ -1099,6 +1107,28 @@ public class MainActivity extends Activity {
         }
 
         storePreviousDeviceCounters(buttons, joystickLeft, joystickRight, joystickUp, joystickDown, joystickClick);
+    }
+
+    private String normalizeJoystickDirection(String direction) {
+        return direction == null || direction.trim().isEmpty()
+                ? "CENTRO"
+                : direction.trim().toUpperCase();
+    }
+
+    private void processJoystickXDirection(JSONObject event, boolean alreadyHandledByCounters) {
+        String currentDirection = normalizeJoystickDirection(event.optString("joystick_x_posizione", event.optString("joystick_x_position", "CENTRO")));
+
+        if (!alreadyHandledByCounters && !currentDirection.equals(previousDeviceJoystickX)) {
+            if ("SINISTRA".equals(currentDirection) || "LEFT".equals(currentDirection)) {
+                changeSelectedSoundType(-1);
+            }
+
+            if ("DESTRA".equals(currentDirection) || "RIGHT".equals(currentDirection)) {
+                changeSelectedSoundType(1);
+            }
+        }
+
+        previousDeviceJoystickX = currentDirection;
     }
 
     private void storePreviousDeviceCounters(JSONObject buttons, int left, int right, int up, int down, int click) {
